@@ -1,0 +1,219 @@
+---
+title: "Homework : Gamma Delta Hedging"
+author: "Huyen Le"
+date: "December 29, 2016"
+output: 
+  pdf_document:
+    fig_caption: true
+    number_sections: true
+      
+---
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.pos = 'H')
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = F, error = F, warning = F)
+library('ggplot2')
+library('tidyr')
+library('moments')
+load('Results for reports.Rdata')
+```
+
+#Assumptions
+
+The result is based on the following assumption:
+
+* Initial price $S_0=100$.
+
+* Implied volatility is $\sigma_1 = 0.2$.
+
+* Realized volatility (used for Monte Carlo simulation stock price path) is $\sigma_2 = 0.3$.
+
+* Interest rate $r = 0.05$.
+
+* The option to be hedged is one-year European call option with strike price $K = 100$ (Option 1).
+
+* There are 240 working days in a year, each day has 6.5 trading hours.
+
+The frequency used for re-hedging is:
+
+* $f = 9630$: hedging every ten-minute period (*almost* continuous hedging)
+
+* $f = 1560$: hedging every hour
+
+* $f = 240$: hedging every day
+
+* $f = 48$: hedging every week
+
+Number of Monte Carlo simulations $N = 10000$.
+
+#Delta Hedging and re-hedging frequency.
+
+##Hedging with known realized volatility.
+
+For simplicity, in this case, I assume that Option 1 is priced with real volatility $\sigma_2 = 0.3$ at time $t = 0$. Put this another way, at time $t =0$, $C_i = C_r$. Assuming that the initial position is going long for one unit of Option 1, the basic steps will be:
+
+* Delta-hedge by shorting $\Delta_r$ units of underlying asset $S_t$, with *real* volatility of $\sigma_2$.
+
+* Change $\Delta_r$ as $S_t$ and time to maturity (TTM) change over the life of the option.
+
+* Finance (invest) any purchase (payment from going short) by borrowing (investing) at risk-free rate $r$ .
+  
+The below chart is the performance of the strategy in different frequency of re-hedge.
+
+```{r plot1, fig.cap = "Delta Hedging by *real* volatility in different re-hedge frequency"}
+
+PnL2.plot <- gather(data = PnL2, Frequency, PnL)
+
+ggplot(PnL2.plot, aes(x = PnL, fill = Frequency)) +
+  geom_histogram(binwidth = 0.01) +
+  facet_wrap(~ Frequency, scales = "free_y") +
+  ylab("Number of simulations")+
+  xlim(-5,5)
+```
+
+
+**Conclusion**: in the case that we **DO** know the real volatility, **increase the re-hedging frequency will REDUCE the exposure to change in stock price**.
+
+##Hedging with implied volatility (unknown real volatility)
+
+In this case, I assume that Option 1 is priced with implied volatility $\sigma_1 = 0.2$ at time $t = 0$. Put this another way, at time $t =0$, $C_i \neq C_r$.
+
+Assuming that the initial position is going long for one unit of Option 1, the strategy will include:
+
+* Delta-hedge by shorting $\Delta_r$ units of underlying asset $S_t$, with $\Delta$ values are calculated based on *implied volatility* of $\sigma_1$
+
+* Change $\Delta_r$ as $S_t$ and TTM change over the life of the option
+
+* Finance(invest) any purchases (payments from going short) by borrowing (investing) at risk-free rate $r$ 
+
+The chart below displays the performance of the strategy. It is noteworthy that the Profit and Loss in this case is positive only because real volatility $\sigma_2$ is greater than the implied one $\sigma_1$. That leads to the fact that we actually **under-hedged** and became less exposed to the underlying price. In the opposite case, we will suffer from loss due to over-hedging.
+
+```{r plot2, fig.cap="Delta Hedging by implied volatility in different re-hedge frequency"}
+
+ggplot(gather(data = PnL, Frequency, PnL), aes(x = PnL, fill = Frequency)) +
+  geom_histogram(binwidth = 0.01) +
+  facet_wrap(~ Frequency, scales = "free_y") +
+  ylab("Number of simulations")
+```
+
+
+Also, following () is the comparison of PnL statistics in case of Hedging by real and implied volatility, respectively. The standard deviation of PnL was much higher and went **flat** even after increasing Delta rebalancing frequency for hedging using implied volatility.
+
+
+```{r plot3, fig.cap = "Convergence of standard deviation of hedging error - Delta Hedging" ,fig.height = 3, fig.width = 5, echo = FALSE, fig.pos = "H"}
+b<-data.frame(statistics2[2,], statistics[2,], c(n, n2, n3, n4))
+
+names(b) <- c("real vol", "implied vol", "Frequency")
+
+
+b <- gather(b, Type, Std, - Frequency)
+
+ggplot(b, aes(x = Frequency, y = Std, col = factor(Type))) + 
+    xlab("Frequency of Delta rebalancing")+
+    theme(legend.title=element_blank())+
+    geom_point()+
+    geom_line()
+```
+
+
+
+**Conclusion**: As can be seen, in the case that we do **NOT** know the real volatility, **increase the re-hedging frequency will not help reduce the exposure to the changes in stock price**. 
+
+# Gamma-Delta Hedging
+
+From the above part, we can see that delta hedging, by doing continuously with real volatility, can reduce the exposure of the portfolio to the changes in underlying price.
+
+In this part, I will implement Gamma-Delta hedging by establishing a delta and gamma neural portfolio using real volatility $\sigma_2 = 0.3$. To implement gamma-hedge, the second option is also European call with strike $K = 90$ (*Option2*). 
+
+It is worth noting that my strategy is really simple, I only gamma hedge the portfolio **once** at the beginning and rebalance delta of the portfolio (which now contains Option 1 and Option 2) with different frequencies to see if I can reduce the hedging error for the portfolio. 
+
+Assuming that the initial position is going long for one unit of Option 1, the basic steps will be:
+
+* In order to make the portfolio gamma-neutral, we take position on Option 2 as follows: 
+
+$$
+Pos_{option 2} = -\frac{\Gamma_1}{\Gamma_2}
+$$
+By doing so, we make the portfolio gamma neutral at time $t =0$.
+
+* Afterwards, take the position in underlying stock to delta hedge the option portfolio. In other words, position of underlying will be $Pos_{stock} = -\Delta_{portfolio}$.
+
+* Change $Pos_{stock}$ over the life of the two options.
+
+* Finance(invest) any purchase (payment from going short) by borrowing (investing) at risk-free rate $r$. 
+
+In the following page is the figure for the performance of the Gamma-Delta neutral portfolio in this case and the line chart showing the convergence of hedging error's standard deviation for Delta and Delta-Gamma hedging strategies. It is confirmed in both that standard deviation of a Delta - Gamma hedged portfolio converges to zero more quickly than the Delta hedged portfolio
+
+
+```{r plot4, fig.cap = "Delta - Gamma Hedging by known real volatility in different re-hedge frequency" , echo = FALSE}
+
+PnL3.plot <- gather(data = PnL3, Frequency, PnL)
+
+
+ggplot(PnL3.plot, aes(x = PnL, fill = Frequency)) +
+  geom_histogram(binwidth = 0.01) +
+  facet_wrap(~ Frequency, scales = "free_y") +
+  ylab("Number of simulations")
+```
+
+
+
+```{r plot5, fig.cap = "Convergence of standard deviation of hedging error  - Delta and Delta-Gamma hedging", ,fig.height = 3, fig.width = 5, echo = FALSE}
+c<-data.frame(statistics2[2,], statistics3[2,], c(n, n2, n3, n4))
+
+names(c) <- c("Delta", "Delta-Gamma", "Frequency")
+
+
+c <- gather(c, Type, Std, - Frequency)
+
+ggplot(c, aes(x = Frequency, y = Std, col = factor(Type))) + 
+    geom_point()+
+    geom_line()+
+    xlab("Frequency of Delta rebalancing")+
+    theme(legend.title=element_blank())
+```
+
+
+**Conclusion**: the performance of Gamma-Delta hedging is much better (with smaller hedging error) for every frequency. Taking transaction cost into consideration, **we can reduce the trading frequency to achieve the same desired hedging error** by making our portfolio neutral in both gamma and delta. 
+
+# Attachments
+
+Being attached with this report is:
+
+* code in ```C++``` to create the package in ```R``` for Monte Carlo Simulation and 
+
+* code in ```R``` for calculation and visualization.
+
+
+
+Thank you very much for reading (if you read this report until the end). 
+
+Wish you and your family a Happy New Year!
+
+___
+
+\newpage
+
+#Appendix
+
+Here is the summary statistics for the strategies applied in this project
+
+
+```{r}
+knitr::kable(statistics, caption  = "Hedging with implied volatility statistics")
+```
+
+```{r}
+knitr::kable(statistics2, caption  = "Hedging with known realized volatility statistics")
+```
+
+```{r}
+knitr::kable(statistics3, caption  = "Gamma-Delta Hedging with known realized volatility statistics")
+```
+
+
+
+
